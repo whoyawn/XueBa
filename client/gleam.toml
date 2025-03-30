@@ -1,7 +1,8 @@
-name = "frontend"
+name = "xueba"
+target = "javascript"
 version = "0.1.0"
 licenses = ["Apache-2.0"]
 
 [dependencies]
 gleam_stdlib = "~> 0.32"
-lustre = "~> 0.5" 
+lustre = ">= 4.6.4 and < 5.0.0"
