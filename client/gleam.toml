@@ -8,3 +8,4 @@ dev-dependencies = { lustre_dev_tools = ">= 1.6.5 and < 2.0.0" }
 gleam_stdlib = "~> 0.32"
 lustre = ">= 4.6.4 and < 5.0.0"
 lustre_http = ">= 0.7.0 and < 1.0.0"
+modem = ">= 2.0.1 and < 3.0.0"

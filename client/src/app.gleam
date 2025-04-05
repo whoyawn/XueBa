@@ -5,6 +5,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute
 import lustre/effect
@@ -12,6 +13,7 @@ import lustre/element
 import lustre/element/html
 import lustre/event
 import lustre_http
+import modem
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -36,7 +38,71 @@ pub type Model {
 }
 
 fn init(_flags) -> #(Model, effect.Effect(Msg)) {
-  #(Model("", [], None), effect.none())
+  io.println("Initializing app...")
+  let initial_url = modem.initial_uri()
+  io.println("Initial URL: " <> string.inspect(initial_url))
+
+  case initial_url {
+    Ok(uri) -> {
+      io.println("URI path: " <> uri.path)
+      io.println("URI query: " <> string.inspect(uri.query))
+
+      case uri.query {
+        Some(query) -> {
+          io.println("Query string: " <> query)
+          case string.split_once(query, "=") {
+            Ok(#("q", url)) -> {
+              io.println("Found URL in query: " <> url)
+              let track_id = extract_track_id(url)
+              case track_id {
+                Some(id) -> {
+                  io.println("Found track ID: " <> id)
+                  #(Model(url, [], None), search_tracks(id))
+                }
+                None -> {
+                  io.println("No valid track ID found")
+                  #(Model("", [], None), effect.none())
+                }
+              }
+            }
+            _ -> {
+              io.println("Query doesn't match expected format")
+              #(Model("", [], None), effect.none())
+            }
+          }
+        }
+        None -> {
+          io.println("No query parameter found")
+          #(Model("", [], None), effect.none())
+        }
+      }
+    }
+    Error(_) -> {
+      io.println("Failed to get initial URL")
+      #(Model("", [], None), effect.none())
+    }
+  }
+}
+
+fn on_url_change(uri: Uri) -> Msg {
+  case uri.query {
+    Some(query) -> {
+      case string.split(query, "=") {
+        ["q", url] -> {
+          let track_id = extract_track_id(url)
+          case track_id {
+            Some(id) -> {
+              io.println("Found track ID in URL: " <> id)
+              SearchUrlChanged(url)
+            }
+            None -> SearchUrlChanged("")
+          }
+        }
+        _ -> SearchUrlChanged("")
+      }
+    }
+    None -> SearchUrlChanged("")
+  }
 }
 
 pub type Msg {
@@ -47,21 +113,33 @@ pub type Msg {
 
 pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
   case msg {
-    SearchUrlChanged(url) -> #(Model(..model, search_url: url), effect.none())
+    SearchUrlChanged(url) -> {
+      let track_id = extract_track_id(url)
+      case track_id {
+        Some(id) -> #(Model(..model, search_url: url), search_tracks(id))
+        None -> #(Model(..model, search_url: url), effect.none())
+      }
+    }
+
     SearchClicked -> {
       let track_id = extract_track_id(model.search_url)
       case track_id {
-        Some(id) -> #(model, search_tracks(id))
+        Some(id) -> {
+          let encoded_url = string.replace(model.search_url, "/", "%2F")
+          #(model, modem.push("/search", Some("q=" <> encoded_url), None))
+        }
         None -> #(
           Model(..model, error: Some("Invalid Spotify URL")),
           effect.none(),
         )
       }
     }
+
     ApiReturnedTracks(Ok(tracks)) -> #(
       Model(..model, tracks: tracks, error: None),
       effect.none(),
     )
+
     ApiReturnedTracks(Error(_)) -> #(
       Model(..model, error: Some("Failed to fetch tracks")),
       effect.none(),
@@ -98,7 +176,7 @@ fn extract_track_id(url: String) -> Option(String) {
 
 fn search_tracks(track_id: String) -> effect.Effect(Msg) {
   let url = "http://localhost:3000/track/" <> track_id
-  io.println("URL: " <> url)
+  io.println("Making API request to: " <> url)
   let decoder = decode.list(track_decoder())
   let expect = lustre_http.expect_json(decoder, ApiReturnedTracks)
 
