@@ -33,7 +33,7 @@ The backend will be available at `http://localhost:8000`
 
 ```bash
 cd client
-gleam run
+gleam run -m lustre/dev start
 ```
 
 The frontend will be available at `http://localhost:3000`
