@@ -1,6 +1,7 @@
 import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
+import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -26,9 +27,7 @@ pub type Track {
     artist_name: String,
     album_name: String,
     duration: Int,
-    instrumental: Bool,
     plain_lyrics: String,
-    synced_lyrics: String,
   )
 }
 
@@ -71,14 +70,35 @@ pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
 }
 
 fn extract_track_id(url: String) -> Option(String) {
-  case string.split(url, "/") {
-    [_, _, "track", id, ..] -> Some(id)
-    _ -> None
+  let parts = string.split(url, "/")
+  io.println("URL parts: " <> string.join(parts, ", "))
+
+  case parts {
+    [_, _, _, "track", id_with_query, ..] -> {
+      let id_parts = string.split(id_with_query, "?")
+      io.println("ID parts: " <> string.join(id_parts, ", "))
+
+      case id_parts {
+        [id, ..] -> {
+          io.println("Found track ID: " <> id)
+          Some(id)
+        }
+        _ -> {
+          io.println("No ID found in parts")
+          None
+        }
+      }
+    }
+    _ -> {
+      io.println("URL doesn't match expected format")
+      None
+    }
   }
 }
 
 fn search_tracks(track_id: String) -> effect.Effect(Msg) {
-  let url = "/search?trackURL=" <> track_id
+  let url = "http://localhost:3000/track/" <> track_id
+  io.println("URL: " <> url)
   let decoder = decode.list(track_decoder())
   let expect = lustre_http.expect_json(decoder, ApiReturnedTracks)
 
@@ -91,9 +111,7 @@ fn track_decoder() -> Decoder(Track) {
   use artist_name <- decode.field("artistName", decode.string)
   use album_name <- decode.field("albumName", decode.string)
   use duration <- decode.field("duration", decode.int)
-  use instrumental <- decode.field("instrumental", decode.bool)
   use plain_lyrics <- decode.field("plainLyrics", decode.string)
-  use synced_lyrics <- decode.field("syncedLyrics", decode.string)
 
   decode.success(Track(
     id:,
@@ -101,9 +119,7 @@ fn track_decoder() -> Decoder(Track) {
     artist_name:,
     album_name:,
     duration:,
-    instrumental:,
     plain_lyrics:,
-    synced_lyrics:,
   ))
 }
 
@@ -153,6 +169,7 @@ pub fn view(model: Model) -> element.Element(Msg) {
     html.div(
       [],
       list.map(model.tracks, fn(track: Track) {
+        let pleco_url = "plecoapi://x-callback-url/s?q=" <> track.plain_lyrics
         html.div([attribute.style(track_styles)], [
           html.h3([], [element.text(track.track_name)]),
           html.p([], [element.text("Artist: " <> track.artist_name)]),
@@ -162,9 +179,16 @@ pub fn view(model: Model) -> element.Element(Msg) {
               "Duration: " <> int.to_string(track.duration) <> " seconds",
             ),
           ]),
-          html.p([], [
-            element.text("Instrumental: " <> bool.to_string(track.instrumental)),
-          ]),
+          html.a(
+            [
+              attribute.href(pleco_url),
+              attribute.style([
+                #("color", "blue"),
+                #("text-decoration", "underline"),
+              ]),
+            ],
+            [element.text("Open in Pleco")],
+          ),
           html.pre([attribute.style(lyrics_styles)], [
             element.text(track.plain_lyrics),
           ]),

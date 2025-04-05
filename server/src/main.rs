@@ -3,10 +3,12 @@ use axum::{
     Router,
     Json,
     extract::Path,
+    http::{Method, header},
 };
 use serde::{Deserialize, Serialize};
 use std::env;
 use dotenv::dotenv;
+use tower_http::cors::{CorsLayer, Any};
 
 #[derive(Debug, Deserialize)]
 struct SpotifyTrack {
@@ -78,7 +80,13 @@ async fn get_track(Path(spotify_id): Path<String>) -> Json<Vec<LRCLibResponse>> 
 async fn main() {
     // Build our application with a route
     let app = Router::new()
-        .route("/track/:spotify_id", get(get_track));
+        .route("/track/:spotify_id", get(get_track))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([Method::GET])
+                .allow_headers([header::CONTENT_TYPE])
+        );
 
     // Run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
