@@ -15,3 +15,4 @@ Cargo.locket/
 # Environment variables
 .env
 .DS_Store
+client/priv/static/app.mjs
