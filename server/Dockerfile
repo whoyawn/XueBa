@@ -15,4 +15,4 @@ COPY src ./src
 EXPOSE 3000
 
 # Command to run the server
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "3000"] 
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "${PORT}"] 
