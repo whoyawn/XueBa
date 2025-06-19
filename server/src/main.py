@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from typing import List
 import requests
 from dotenv import load_dotenv
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 
 load_dotenv()
 
@@ -39,21 +41,22 @@ class LRCLibResponse(BaseModel):
 
 @app.get("/track/{spotify_id}", response_model=List[LRCLibResponse])
 def get_track(spotify_id: str = Path(...)):
-    spotify_token = os.getenv("SPOTIFY_ACCESS_TOKEN")
-    if not spotify_token:
-        raise HTTPException(status_code=500, detail="SPOTIFY_ACCESS_TOKEN must be set")
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET must be set")
 
-    # Get track info from Spotify
-    spotify_url = f"https://api.spotify.com/v1/tracks/{spotify_id}"
-    headers = {"Authorization": f"Bearer {spotify_token}"}
-    spotify_response = requests.get(spotify_url, headers=headers)
-    if not spotify_response.ok:
-        raise HTTPException(status_code=spotify_response.status_code, detail="Failed to fetch from Spotify")
-    track_data = spotify_response.json()
+    auth_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
+    sp = spotipy.Spotify(auth_manager=auth_manager)
     try:
-        track = SpotifyTrack(**track_data)
+        track_data = sp.track(spotify_id)
+        track = SpotifyTrack(
+            name=track_data["name"],
+            artists=[SpotifyArtist(name=artist["name"]) for artist in track_data["artists"]],
+            album=SpotifyAlbum(name=track_data["album"]["name"])
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse Spotify response: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch or parse Spotify track: {e}")
 
     # Get lyrics from LRCLib
     lrclib_url = (
