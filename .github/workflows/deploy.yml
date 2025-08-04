@@ -17,14 +17,14 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: Go to client folder
+        run: cd /client
       - name: Set up Gleam
         uses: erlef/setup-beam@v1
         with:
           otp-version: "27.0"
           gleam-version: "1.10.0"
           rebar3-version: "3"
-      - name: Go to client folder
-        run: cd client
       - name: Install dependencies
         run: gleam deps download
       - name: Build app
