@@ -17,8 +17,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Go to client folder
-        run: cd client/
+      - name: Go to client folder  
+        working-directory: client
+        run: echo "In client folder"
       - name: Set up Gleam
         uses: erlef/setup-beam@v1
         with:
