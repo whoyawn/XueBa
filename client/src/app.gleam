@@ -15,6 +15,11 @@ import lustre/event
 import lustre_http
 import modem
 
+// Always use production API URL
+fn get_api_base_url() -> String {
+  "https://xueba-9azgj.ondigitalocean.app"
+}
+
 pub fn main() {
   let app = lustre.application(init, update, view)
   let assert Ok(_) = lustre.start(app, "#app", Nil)
@@ -175,7 +180,7 @@ fn extract_track_id(url: String) -> Option(String) {
 }
 
 fn search_tracks(track_id: String) -> effect.Effect(Msg) {
-  let url = "http://localhost:3000/track/" <> track_id
+  let url = get_api_base_url() <> "/track/" <> track_id
   io.println("Making API request to: " <> url)
   let decoder = decode.list(track_decoder())
   let expect = lustre_http.expect_json(decoder, ApiReturnedTracks)
