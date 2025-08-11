@@ -19,6 +19,15 @@
 </head>
 <body>
     <div id="app"></div>
+    <script>
+        (function() {
+          const params = new URLSearchParams(window.location.search);
+          const path = params.get('path');
+          if (path) {
+            window.history.replaceState(null, null, path);
+          }
+        })();
+      </script>
     <script type="module" src="./priv/static/app.min.mjs"></script>
 </body>
 </html> 
