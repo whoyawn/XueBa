@@ -12,5 +12,4 @@ modem = ">= 2.0.1 and < 3.0.0"
 
 [lustre-dev.start]
 watch = true
-port = 3000
 open = true

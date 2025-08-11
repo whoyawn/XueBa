@@ -131,7 +131,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
       case track_id {
         Some(id) -> {
           let encoded_url = string.replace(model.search_url, "/", "%2F")
-          #(model, modem.push("/search", Some("q=" <> encoded_url), None))
+          #(
+            model,
+            effect.batch([
+              search_tracks(id),
+              modem.push("/search", Some("q=" <> encoded_url), None),
+            ]),
+          )
         }
         None -> #(
           Model(..model, error: Some("Invalid Spotify URL")),
