@@ -60,11 +60,14 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
               case string.split_once(query, "=") {
                 Ok(#("q", url)) -> {
                   io.println("Found URL in search path: " <> url)
-                  let track_id = extract_track_id(url)
+                  // URL-decode the Spotify URL before extracting track ID
+                  let decoded_url = string.replace(url, "%2F", "/")
+                  io.println("Decoded URL: " <> decoded_url)
+                  let track_id = extract_track_id(decoded_url)
                   case track_id {
                     Some(id) -> {
                       io.println("Found track ID: " <> id)
-                      #(Model(url, [], None), search_tracks(id))
+                      #(Model(decoded_url, [], None), search_tracks(id))
                     }
                     None -> {
                       io.println("No valid track ID found in search path")
@@ -108,11 +111,14 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
               case string.split_once(clean_query, "=") {
                 Ok(#("q", url)) -> {
                   io.println("Found URL in regular query: " <> url)
-                  let track_id = extract_track_id(url)
+                  // URL-decode the Spotify URL before extracting track ID
+                  let decoded_url = string.replace(url, "%2F", "/")
+                  io.println("Decoded URL: " <> decoded_url)
+                  let track_id = extract_track_id(decoded_url)
                   case track_id {
                     Some(id) -> {
                       io.println("Found track ID: " <> id)
-                      #(Model(url, [], None), search_tracks(id))
+                      #(Model(decoded_url, [], None), search_tracks(id))
                     }
                     None -> {
                       io.println("No valid track ID found")
@@ -150,10 +156,15 @@ pub type Msg {
 pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
   case msg {
     SearchUrlChanged(url) -> {
-      let track_id = extract_track_id(url)
+      // URL-decode the Spotify URL before extracting track ID
+      let decoded_url = string.replace(url, "%2F", "/")
+      let track_id = extract_track_id(decoded_url)
       case track_id {
-        Some(id) -> #(Model(..model, search_url: url), search_tracks(id))
-        None -> #(Model(..model, search_url: url), effect.none())
+        Some(id) -> #(
+          Model(..model, search_url: decoded_url),
+          search_tracks(id),
+        )
+        None -> #(Model(..model, search_url: decoded_url), effect.none())
       }
     }
 
