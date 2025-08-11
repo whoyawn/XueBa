@@ -1,11 +1,9 @@
-import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute
 import lustre/effect
@@ -52,33 +50,71 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
       io.println("URI path: " <> uri.path)
       io.println("URI query: " <> string.inspect(uri.query))
 
-      case uri.query {
-        Some(query) -> {
-          io.println("Query string: " <> query)
-          case string.split_once(query, "=") {
-            Ok(#("q", url)) -> {
-              io.println("Found URL in query: " <> url)
-              let track_id = extract_track_id(url)
-              case track_id {
-                Some(id) -> {
-                  io.println("Found track ID: " <> id)
-                  #(Model(url, [], None), search_tracks(id))
+      // Check if we're on the search path (from 404.html redirect)
+      case uri.path {
+        "/search" -> {
+          // Handle search path - extract query from path
+          case uri.query {
+            Some(query) -> {
+              io.println("Search path query: " <> query)
+              case string.split_once(query, "=") {
+                Ok(#("q", url)) -> {
+                  io.println("Found URL in search path: " <> url)
+                  let track_id = extract_track_id(url)
+                  case track_id {
+                    Some(id) -> {
+                      io.println("Found track ID: " <> id)
+                      #(Model(url, [], None), search_tracks(id))
+                    }
+                    None -> {
+                      io.println("No valid track ID found in search path")
+                      #(Model("", [], None), effect.none())
+                    }
+                  }
                 }
-                None -> {
-                  io.println("No valid track ID found")
+                _ -> {
+                  io.println("Search path query doesn't match expected format")
                   #(Model("", [], None), effect.none())
                 }
               }
             }
-            _ -> {
-              io.println("Query doesn't match expected format")
+            None -> {
+              io.println("Search path has no query")
               #(Model("", [], None), effect.none())
             }
           }
         }
-        None -> {
-          io.println("No query parameter found")
-          #(Model("", [], None), effect.none())
+        _ -> {
+          // Handle regular query parameters (not from search path)
+          case uri.query {
+            Some(query) -> {
+              io.println("Regular query string: " <> query)
+              case string.split_once(query, "=") {
+                Ok(#("q", url)) -> {
+                  io.println("Found URL in regular query: " <> url)
+                  let track_id = extract_track_id(url)
+                  case track_id {
+                    Some(id) -> {
+                      io.println("Found track ID: " <> id)
+                      #(Model(url, [], None), search_tracks(id))
+                    }
+                    None -> {
+                      io.println("No valid track ID found")
+                      #(Model("", [], None), effect.none())
+                    }
+                  }
+                }
+                _ -> {
+                  io.println("Regular query doesn't match expected format")
+                  #(Model("", [], None), effect.none())
+                }
+              }
+            }
+            None -> {
+              io.println("No query parameter found")
+              #(Model("", [], None), effect.none())
+            }
+          }
         }
       }
     }
@@ -86,27 +122,6 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
       io.println("Failed to get initial URL")
       #(Model("", [], None), effect.none())
     }
-  }
-}
-
-fn on_url_change(uri: Uri) -> Msg {
-  case uri.query {
-    Some(query) -> {
-      case string.split(query, "=") {
-        ["q", url] -> {
-          let track_id = extract_track_id(url)
-          case track_id {
-            Some(id) -> {
-              io.println("Found track ID in URL: " <> id)
-              SearchUrlChanged(url)
-            }
-            None -> SearchUrlChanged("")
-          }
-        }
-        _ -> SearchUrlChanged("")
-      }
-    }
-    None -> SearchUrlChanged("")
   }
 }
 
