@@ -54,7 +54,6 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
       case uri.path {
         "/search" -> {
           // Handle search path - extract query from path
-          io.println("Processing search path: " <> uri.path)
           case uri.query {
             Some(query) -> {
               io.println("Search path query: " <> query)
@@ -65,7 +64,6 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
                   case track_id {
                     Some(id) -> {
                       io.println("Found track ID: " <> id)
-                      io.println("Calling search_tracks with ID: " <> id)
                       #(Model(url, [], None), search_tracks(id))
                     }
                     None -> {
@@ -76,7 +74,6 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
                 }
                 _ -> {
                   io.println("Search path query doesn't match expected format")
-                  io.println("Query parts: " <> string.inspect(string.split(query, "=")))
                   #(Model("", [], None), effect.none())
                 }
               }
@@ -89,6 +86,7 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
         }
         _ -> {
           // Handle regular query parameters (not from search path)
+          io.println("=== HANDLING REGULAR QUERY ===")
           case uri.query {
             Some(query) -> {
               io.println("Regular query string: " <> query)
