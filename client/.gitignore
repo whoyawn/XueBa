@@ -6,6 +6,9 @@
 # Lustre specific
 /node_modules/
 /dist/
+# Exception: track 404.html for SPA routing
+!dist/
+!dist/404.html
 /.parcel-cache/
 
 # IDE and editor files

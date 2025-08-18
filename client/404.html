@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redirecting...</title>
+  <script>
+    const path = window.location.pathname;
+    const search = window.location.search;
+    
+    if (path === '/search' && search) {
+      // For search routes, redirect to the main page with the search query
+      // Remove the leading '?' from search to avoid double question marks
+      const cleanSearch = search.startsWith('?') ? search.substring(1) : search;
+      const redirectUrl = `${window.location.origin}/?${cleanSearch}`;
+      console.log('Redirecting search from:', window.location.href, 'to:', redirectUrl);
+      window.location.replace(redirectUrl);
+    } else {
+      // For other routes, use the path parameter approach
+      const redirectUrl = `${window.location.origin}${path.includes('/') ? path.substring(0, path.lastIndexOf('/') + 1) : '/'}?path=${path}`;
+      window.location.replace(redirectUrl);
+    }
+  </script>
+</head>
+<body>
+  <p>Redirecting...</p>
+</body>
+</html>

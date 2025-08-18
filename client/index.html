@@ -19,9 +19,15 @@
 </head>
 <body>
     <div id="app"></div>
-    <script type="module">
-        import { main } from "./build/dev/javascript/app/app.mjs";
-        main();
-    </script>
+    <script>
+        (function() {
+          const params = new URLSearchParams(window.location.search);
+          const path = params.get('path');
+          if (path) {
+            window.history.replaceState(null, null, path);
+          }
+        })();
+      </script>
+    <script type="module" src="./priv/static/app.min.mjs"></script>
 </body>
 </html> 

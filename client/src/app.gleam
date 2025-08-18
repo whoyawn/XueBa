@@ -1,11 +1,9 @@
-import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute
 import lustre/effect
@@ -14,6 +12,11 @@ import lustre/element/html
 import lustre/event
 import lustre_http
 import modem
+
+// Always use production API URL
+fn get_api_base_url() -> String {
+  "https://xueba-9azgj.ondigitalocean.app"
+}
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -47,33 +50,93 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
       io.println("URI path: " <> uri.path)
       io.println("URI query: " <> string.inspect(uri.query))
 
-      case uri.query {
-        Some(query) -> {
-          io.println("Query string: " <> query)
-          case string.split_once(query, "=") {
-            Ok(#("q", url)) -> {
-              io.println("Found URL in query: " <> url)
-              let track_id = extract_track_id(url)
-              case track_id {
-                Some(id) -> {
-                  io.println("Found track ID: " <> id)
-                  #(Model(url, [], None), search_tracks(id))
+      // Check if we're on the search path (from 404.html redirect)
+      case uri.path {
+        "/search" -> {
+          // Handle search path - extract query from path
+          case uri.query {
+            Some(query) -> {
+              io.println("Search path query: " <> query)
+              case string.split_once(query, "=") {
+                Ok(#("q", url)) -> {
+                  io.println("Found URL in search path: " <> url)
+                  // URL-decode the Spotify URL before extracting track ID
+                  let decoded_url = string.replace(url, "%2F", "/")
+                  io.println("Decoded URL: " <> decoded_url)
+                  let track_id = extract_track_id(decoded_url)
+                  case track_id {
+                    Some(id) -> {
+                      io.println("Found track ID: " <> id)
+                      #(Model(decoded_url, [], None), search_tracks(id))
+                    }
+                    None -> {
+                      io.println("No valid track ID found in search path")
+                      #(Model("", [], None), effect.none())
+                    }
+                  }
                 }
-                None -> {
-                  io.println("No valid track ID found")
+                _ -> {
+                  io.println("Search path query doesn't match expected format")
                   #(Model("", [], None), effect.none())
                 }
               }
             }
-            _ -> {
-              io.println("Query doesn't match expected format")
+            None -> {
+              io.println("Search path has no query")
               #(Model("", [], None), effect.none())
             }
           }
         }
-        None -> {
-          io.println("No query parameter found")
-          #(Model("", [], None), effect.none())
+        _ -> {
+          // Handle regular query parameters (not from search path)
+          io.println("=== HANDLING REGULAR QUERY ===")
+          case uri.query {
+            Some(query) -> {
+              io.println("Regular query string: " <> query)
+              io.println("Processing regular query on path: " <> uri.path)
+              io.println(
+                "Query starts with '?': "
+                <> string.inspect(string.starts_with(query, "?")),
+              )
+              // Handle malformed URLs with double question marks
+              let clean_query = case string.starts_with(query, "?") {
+                True ->
+                  case string.split(query, "?") {
+                    [_, rest, ..] -> rest
+                    _ -> query
+                  }
+                False -> query
+              }
+              io.println("Cleaned query: " <> clean_query)
+              case string.split_once(clean_query, "=") {
+                Ok(#("q", url)) -> {
+                  io.println("Found URL in regular query: " <> url)
+                  // URL-decode the Spotify URL before extracting track ID
+                  let decoded_url = string.replace(url, "%2F", "/")
+                  io.println("Decoded URL: " <> decoded_url)
+                  let track_id = extract_track_id(decoded_url)
+                  case track_id {
+                    Some(id) -> {
+                      io.println("Found track ID: " <> id)
+                      #(Model(decoded_url, [], None), search_tracks(id))
+                    }
+                    None -> {
+                      io.println("No valid track ID found")
+                      #(Model("", [], None), effect.none())
+                    }
+                  }
+                }
+                _ -> {
+                  io.println("Regular query doesn't match expected format")
+                  #(Model("", [], None), effect.none())
+                }
+              }
+            }
+            None -> {
+              io.println("No query parameter found")
+              #(Model("", [], None), effect.none())
+            }
+          }
         }
       }
     }
@@ -81,27 +144,6 @@ fn init(_flags) -> #(Model, effect.Effect(Msg)) {
       io.println("Failed to get initial URL")
       #(Model("", [], None), effect.none())
     }
-  }
-}
-
-fn on_url_change(uri: Uri) -> Msg {
-  case uri.query {
-    Some(query) -> {
-      case string.split(query, "=") {
-        ["q", url] -> {
-          let track_id = extract_track_id(url)
-          case track_id {
-            Some(id) -> {
-              io.println("Found track ID in URL: " <> id)
-              SearchUrlChanged(url)
-            }
-            None -> SearchUrlChanged("")
-          }
-        }
-        _ -> SearchUrlChanged("")
-      }
-    }
-    None -> SearchUrlChanged("")
   }
 }
 
@@ -114,10 +156,15 @@ pub type Msg {
 pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
   case msg {
     SearchUrlChanged(url) -> {
-      let track_id = extract_track_id(url)
+      // URL-decode the Spotify URL before extracting track ID
+      let decoded_url = string.replace(url, "%2F", "/")
+      let track_id = extract_track_id(decoded_url)
       case track_id {
-        Some(id) -> #(Model(..model, search_url: url), search_tracks(id))
-        None -> #(Model(..model, search_url: url), effect.none())
+        Some(id) -> #(
+          Model(..model, search_url: decoded_url),
+          search_tracks(id),
+        )
+        None -> #(Model(..model, search_url: decoded_url), effect.none())
       }
     }
 
@@ -126,7 +173,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
       case track_id {
         Some(id) -> {
           let encoded_url = string.replace(model.search_url, "/", "%2F")
-          #(model, modem.push("/search", Some("q=" <> encoded_url), None))
+          #(
+            model,
+            effect.batch([
+              search_tracks(id),
+              modem.push("/search", Some("q=" <> encoded_url), None),
+            ]),
+          )
         }
         None -> #(
           Model(..model, error: Some("Invalid Spotify URL")),
@@ -175,7 +228,7 @@ fn extract_track_id(url: String) -> Option(String) {
 }
 
 fn search_tracks(track_id: String) -> effect.Effect(Msg) {
-  let url = "http://localhost:3000/track/" <> track_id
+  let url = get_api_base_url() <> "/track/" <> track_id
   io.println("Making API request to: " <> url)
   let decoder = decode.list(track_decoder())
   let expect = lustre_http.expect_json(decoder, ApiReturnedTracks)
