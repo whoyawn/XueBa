@@ -31,7 +31,6 @@ pub type Track {
     track_name: String,
     artist_name: String,
     album_name: String,
-    duration: Int,
     plain_lyrics: String,
   )
 }
@@ -188,15 +187,53 @@ pub fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
       }
     }
 
-    ApiReturnedTracks(Ok(tracks)) -> #(
-      Model(..model, tracks: tracks, error: None),
-      effect.none(),
-    )
+    ApiReturnedTracks(Ok(tracks)) -> {
+      io.println(
+        "API returned tracks successfully. Count: "
+        <> int.to_string(list.length(tracks)),
+      )
+      #(Model(..model, tracks: tracks, error: None), effect.none())
+    }
 
-    ApiReturnedTracks(Error(_)) -> #(
-      Model(..model, error: Some("Failed to fetch tracks")),
-      effect.none(),
-    )
+    ApiReturnedTracks(Error(error)) -> {
+      io.println("API returned error")
+      case error {
+        lustre_http.BadUrl(url) -> io.println("Bad URL: " <> url)
+        lustre_http.InternalServerError(body) ->
+          io.println("Server 500 body: " <> body)
+        lustre_http.JsonError(decode_error) ->
+          io.println("JSON decode error: " <> string.inspect(decode_error))
+        lustre_http.NetworkError ->
+          io.println("Network error: unable to reach server")
+        lustre_http.NotFound -> io.println("Resource not found (404)")
+        lustre_http.OtherError(status, body) ->
+          io.println(
+            "Unexpected status " <> int.to_string(status) <> ", body: " <> body,
+          )
+        lustre_http.Unauthorized -> io.println("Unauthorized (401)")
+      }
+      #(Model(..model, error: Some(http_error_to_string(error))), effect.none())
+    }
+  }
+}
+
+fn http_error_to_string(error: lustre_http.HttpError) -> String {
+  case error {
+    lustre_http.BadUrl(url) -> "Invalid URL: " <> url
+
+    lustre_http.InternalServerError(body) ->
+      "Internal server error (500). Body: " <> body
+
+    lustre_http.JsonError(_) -> "Failed to decode JSON"
+
+    lustre_http.NetworkError -> "Network error: unable to reach the server"
+
+    lustre_http.NotFound -> "Resource not found (404)"
+
+    lustre_http.OtherError(status, body) ->
+      "Unexpected status " <> int.to_string(status) <> ". Body: " <> body
+
+    lustre_http.Unauthorized -> "Unauthorized (401): authentication required"
   }
 }
 
@@ -230,8 +267,11 @@ fn extract_track_id(url: String) -> Option(String) {
 fn search_tracks(track_id: String) -> effect.Effect(Msg) {
   let url = get_api_base_url() <> "/track/" <> track_id
   io.println("Making API request to: " <> url)
+  io.println("About to make HTTP request...")
   let decoder = decode.list(track_decoder())
+  io.println("Decoder created successfully")
   let expect = lustre_http.expect_json(decoder, ApiReturnedTracks)
+  io.println("Expect function created, calling lustre_http.get...")
 
   lustre_http.get(url, expect)
 }
@@ -241,7 +281,6 @@ fn track_decoder() -> Decoder(Track) {
   use track_name <- decode.field("trackName", decode.string)
   use artist_name <- decode.field("artistName", decode.string)
   use album_name <- decode.field("albumName", decode.string)
-  use duration <- decode.field("duration", decode.int)
   use plain_lyrics <- decode.field("plainLyrics", decode.string)
 
   decode.success(Track(
@@ -249,7 +288,6 @@ fn track_decoder() -> Decoder(Track) {
     track_name:,
     artist_name:,
     album_name:,
-    duration:,
     plain_lyrics:,
   ))
 }
@@ -305,11 +343,7 @@ pub fn view(model: Model) -> element.Element(Msg) {
           html.h3([], [element.text(track.track_name)]),
           html.p([], [element.text("Artist: " <> track.artist_name)]),
           html.p([], [element.text("Album: " <> track.album_name)]),
-          html.p([], [
-            element.text(
-              "Duration: " <> int.to_string(track.duration) <> " seconds",
-            ),
-          ]),
+          // duration removed
           html.a(
             [
               attribute.href(pleco_url),

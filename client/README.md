@@ -7,7 +7,7 @@ This is a Gleam + Lustre single-page application for searching Spotify tracks an
 To run the development server:
 
 ```bash
-gleam run
+gleam run -m lustre/dev start
 ```
 
 ## Building for Production
