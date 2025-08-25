@@ -292,73 +292,70 @@ fn track_decoder() -> Decoder(Track) {
   ))
 }
 
+fn render_track(track: Track) -> element.Element(Msg) {
+  let pleco_url = "plecoapi://x-callback-url/s?q=" <> track.plain_lyrics
+  html.div(
+    [
+      attribute.style("margin-bottom", "20px"),
+      attribute.style("padding", "10px"),
+      attribute.style("border", "1px solid #ccc"),
+      attribute.style("border-radius", "4px"),
+    ],
+    [
+      html.h3([], [element.text(track.track_name)]),
+      html.p([], [element.text("Artist: " <> track.artist_name)]),
+      html.p([], [element.text("Album: " <> track.album_name)]),
+      // duration removed
+      html.a(
+        [
+          attribute.href(pleco_url),
+          attribute.style("color", "blue"),
+          attribute.style("text-decoration", "underline"),
+        ],
+        [element.text("Open in Pleco")],
+      ),
+      html.pre([attribute.style("white-space", "pre-wrap")], [
+        element.text(track.plain_lyrics),
+      ]),
+    ],
+  )
+}
+
 pub fn view(model: Model) -> element.Element(Msg) {
-  let container_styles = [#("padding", "20px")]
-
-  let search_container_styles = [#("margin-bottom", "20px")]
-
-  let input_styles = [
-    #("padding", "8px"),
-    #("margin-right", "10px"),
-    #("width", "300px"),
-  ]
-
-  let button_styles = [#("padding", "8px 16px")]
-
-  let error_styles = [#("color", "red"), #("margin-bottom", "10px")]
-
-  let track_styles = [
-    #("margin-bottom", "20px"),
-    #("padding", "10px"),
-    #("border", "1px solid #ccc"),
-    #("border-radius", "4px"),
-  ]
-
-  let lyrics_styles = [#("white-space", "pre-wrap")]
-
-  html.div([attribute.style(container_styles)], [
-    html.div([attribute.style(search_container_styles)], [
+  let search_section =
+    html.div([attribute.style("margin-bottom", "20px")], [
       html.input([
         attribute.type_("text"),
         attribute.placeholder("Enter Spotify URL"),
         attribute.value(model.search_url),
         event.on_input(SearchUrlChanged),
-        attribute.style(input_styles),
+        attribute.style("padding", "8px"),
+        attribute.style("margin-right", "10px"),
+        attribute.style("width", "300px"),
       ]),
       html.button(
-        [event.on_click(SearchClicked), attribute.style(button_styles)],
+        [event.on_click(SearchClicked), attribute.style("padding", "8px 16px")],
         [element.text("Search")],
       ),
-    ]),
-    case model.error {
-      Some(error) ->
-        html.div([attribute.style(error_styles)], [element.text(error)])
-      None -> element.text("")
-    },
-    html.div(
-      [],
-      list.map(model.tracks, fn(track: Track) {
-        let pleco_url = "plecoapi://x-callback-url/s?q=" <> track.plain_lyrics
-        html.div([attribute.style(track_styles)], [
-          html.h3([], [element.text(track.track_name)]),
-          html.p([], [element.text("Artist: " <> track.artist_name)]),
-          html.p([], [element.text("Album: " <> track.album_name)]),
-          // duration removed
-          html.a(
-            [
-              attribute.href(pleco_url),
-              attribute.style([
-                #("color", "blue"),
-                #("text-decoration", "underline"),
-              ]),
-            ],
-            [element.text("Open in Pleco")],
-          ),
-          html.pre([attribute.style(lyrics_styles)], [
-            element.text(track.plain_lyrics),
-          ]),
-        ])
-      }),
-    ),
-  ])
+    ])
+
+  let error_section = case model.error {
+    Some(error) ->
+      html.div(
+        [
+          attribute.style("color", "red"),
+          attribute.style("margin-bottom", "10px"),
+        ],
+        [element.text(error)],
+      )
+    None -> element.text("")
+  }
+
+  let all_elements =
+    list.append(
+      list.append([search_section], [error_section]),
+      list.map(model.tracks, render_track),
+    )
+
+  html.div([attribute.style("padding", "20px")], all_elements)
 }
