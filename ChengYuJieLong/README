@@ -1,0 +1,172 @@
+# 📘 README — 成语接龙er
+
+## Overview
+
+This project is a **prototype web app** for exploring 成语接龙 using a navigable tree interface.
+
+Users input a 成语 and explore all valid next 成语 based on configurable strictness rules:
+
+* Toneless pinyin
+* Pinyin with tone
+* Same character
+
+---
+
+## Core Concepts
+
+### Chengyu as Nodes
+
+Each 成语 is treated as a node in a directed graph:
+
+```
+大展宏图 → 图穷匕见 → 见义勇为 → ...
+```
+
+The UI displays one node at a time and its valid outgoing edges.
+
+---
+
+## Strictness Levels
+
+| Strictness      | Matching Rule |
+| --------------- | ------------- |
+| Toneless Pinyin | da → da       |
+| Pinyin          | dà → dà       |
+| Same Character  | 图 → 图         |
+
+Strictness affects **only** how the last character matches the next first character.
+
+---
+
+## Data Structure
+
+### Chengyu Type
+
+```ts
+type Chengyu = {
+  text: string;
+  chars: string[];
+  pinyin: string[];
+  pinyinNoTone: string[];
+};
+```
+
+---
+
+## Precomputed Lookup Maps
+
+To keep runtime fast, we build **three maps** at startup:
+
+```ts
+// Level 1
+Map<pinyinNoTone, Chengyu[]>
+
+// Level 2
+Map<pinyinWithTone, Chengyu[]>
+
+// Level 3
+Map<character, Chengyu[]>
+```
+
+### Example
+
+```ts
+sameCharMap.get("图") 
+→ ["图穷匕见", "图文并茂", ...]
+```
+
+---
+
+## Tree Generation Logic
+
+```ts
+function getNextChengyus(current, strictness) {
+  const lastIndex = 3;
+
+  switch (strictness) {
+    case 1:
+      return tonelessMap.get(current.pinyinNoTone[lastIndex]);
+    case 2:
+      return pinyinMap.get(current.pinyin[lastIndex]);
+    case 3:
+      return charMap.get(current.chars[lastIndex]);
+  }
+}
+```
+
+---
+
+## State Management
+
+Only **one step of history** is maintained.
+
+```ts
+{
+  currentChengyu,
+  previousChengyu,
+  strictness
+}
+```
+
+This guarantees:
+
+* Deterministic views
+* Easy mental model
+* No hidden navigation
+
+---
+
+## UI Behavior
+
+* Clicking a 成语 recenters the view
+* Back button restores the previous 成语
+* Changing strictness recomputes children immediately
+* All views are derivable from the current 成语 + strictness
+
+---
+
+## Backend / Data Source
+
+### Current Approach (Recommended for Prototype)
+
+* Static JSON dictionary
+* Loaded at app start
+* Indexed in-memory
+
+### Possible Future Improvements
+
+* Server-side expansion
+* Frequency-based sorting
+* Graph pruning
+* Usage statistics
+
+---
+
+## Why This Design Works Well for Learners
+
+* Encourages **pattern recognition**
+* Makes pronunciation rules explicit
+* Removes pressure of “winning”
+* Supports curiosity-driven exploration
+
+---
+
+## Future Ideas (Optional)
+
+* Show matching character highlight
+* Sort by frequency or HSK level
+* Toggle display of pinyin
+* Prevent immediate loops
+* URL-based deep linking
+
+---
+
+If you want, next I can:
+
+* Help you **design the UI layout**
+* Sketch a **React component structure**
+* Write the **map-building code**
+* Suggest **data formats for your dictionary**
+* Help you think about **tree visualization vs list**
+
+Just tell me where you want to go next.

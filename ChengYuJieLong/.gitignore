@@ -1,0 +1,8 @@
+node_modules
+dist
+public/dictionary.json
+*.log
+.DS_Store
+*.js.map
+.vite/
+dictionary_data/cedict_1_0_ts_utf-8_mdbg.txt
