@@ -1,44 +1,72 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
-import { forceCollide } from 'd3-force';
 import type { Chengyu, StrictnessLevel, DictionaryMaps } from './types';
 import { loadDictionary, findChengyu, getNextChengyus } from './dictionary';
 import './App.css';
-
-interface GraphNode {
-  id: string;
-  chengyu: Chengyu;
-  isCenter?: boolean;
-  isTrail?: boolean;
-}
-
-interface GraphLink {
-  source: string;
-  target: string;
-  isTrailLink?: boolean;
-}
 
 function App() {
   const [dictionary, setDictionary] = useState<DictionaryMaps | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
-  const [showInput, setShowInput] = useState(false);
   const [trail, setTrail] = useState<Chengyu[]>([]);
   const [strictness, setStrictness] = useState<StrictnessLevel>(1);
-  const [graphData, setGraphData] = useState<{ nodes: GraphNode[], links: GraphLink[] }>({ nodes: [], links: [] });
+  const [nextChengyus, setNextChengyus] = useState<Chengyu[]>([]);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
-  const fgRef = useRef<any>();
+  const [hoveredStrictness, setHoveredStrictness] = useState<StrictnessLevel | null>(null);
+  const hasLoadedFromURL = useRef(false);
 
   const currentChengyu = trail.length > 0 ? trail[trail.length - 1] : null;
 
-  // Load dictionary on mount
+  // Load dictionary on mount and handle URL routing
   useEffect(() => {
     loadDictionary()
       .then((dict) => {
         setDictionary(dict);
-        setLoading(false);
+
+        // Function to load chengyu from URL
+        const loadFromURL = () => {
+          const path = window.location.pathname;
+          let urlChengyu = path.substring(1); // Remove leading slash
+
+          // Decode URI component if needed
+          if (urlChengyu.includes('%')) {
+            try {
+              urlChengyu = decodeURIComponent(urlChengyu);
+            } catch (e) {
+              console.error('Failed to decode URL:', e);
+            }
+          }
+
+          // Check if we have a valid 4-character chengyu
+          if (urlChengyu && urlChengyu.length === 4) {
+            const chengyu = findChengyu(dict, urlChengyu);
+            if (chengyu) {
+              setTrail([chengyu]);
+              setLoading(false);
+              return true;
+            }
+          }
+          return false;
+        };
+
+        // Try to load from URL
+        const loaded = loadFromURL();
+        hasLoadedFromURL.current = true;
+
+        // Only set loading to false if we didn't load from URL
+        // (if we loaded from URL, we already set it to false in loadFromURL)
+        if (!loaded) {
+          setLoading(false);
+        }
+
+        // Handle browser back/forward buttons
+        const handlePopState = () => {
+          loadFromURL();
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
       })
       .catch((err) => {
         setError(err.message);
@@ -46,121 +74,37 @@ function App() {
       });
   }, []);
 
-  // Update graph when trail or strictness changes
+  // Update URL and title when current chengyu changes
   useEffect(() => {
-    if (!dictionary || trail.length === 0) {
-      setGraphData({ nodes: [], links: [] });
+    // Don't update URL until after we've attempted to load from URL on mount
+    if (!hasLoadedFromURL.current) {
       return;
     }
 
-    const nodes: GraphNode[] = [];
-    const links: GraphLink[] = [];
+    if (currentChengyu) {
+      window.history.pushState({}, '', `/${encodeURIComponent(currentChengyu.text)}`);
+      document.title = `${currentChengyu.text} - 成语接龙`;
+    } else {
+      window.history.pushState({}, '', '/');
+      document.title = '成语接龙 · Chinese Idiom Chain';
+    }
+  }, [currentChengyu]);
 
-    // Add trail nodes (previous chengyus) and their connections
-    trail.forEach((chengyu, index) => {
-      const isLastInTrail = index === trail.length - 1;
-      nodes.push({
-        id: chengyu.text,
-        chengyu,
-        isCenter: isLastInTrail,
-        isTrail: !isLastInTrail
-      });
+  // Update next chengyus when trail or strictness changes
+  useEffect(() => {
+    if (!dictionary || trail.length === 0) {
+      setNextChengyus([]);
+      return;
+    }
 
-      // Connect trail nodes in sequence
-      if (index > 0) {
-        links.push({
-          source: trail[index - 1].text,
-          target: chengyu.text,
-          isTrailLink: true
-        });
-      }
-    });
+    const current = trail[trail.length - 1];
+    const next = getNextChengyus(dictionary, current, strictness);
 
-    // Add child nodes for the current (last) chengyu
-    const currentChengyu = trail[trail.length - 1];
-    const nextChengyus = getNextChengyus(dictionary, currentChengyu, strictness);
-
-    nextChengyus.forEach((chengyu) => {
-      // Don't add if it's already in the trail
-      if (!trail.some(t => t.text === chengyu.text)) {
-        nodes.push({ id: chengyu.text, chengyu });
-        links.push({ source: currentChengyu.text, target: chengyu.text });
-      }
-    });
-
-    setGraphData({ nodes, links });
+    // Filter out chengyus already in trail
+    const filtered = next.filter(chengyu => !trail.some(t => t.text === chengyu.text));
+    setNextChengyus(filtered);
   }, [dictionary, trail, strictness]);
 
-  // Configure D3 forces when graph is ready
-  useEffect(() => {
-    if (fgRef.current && graphData.nodes.length > 0) {
-      const fg = fgRef.current;
-
-      // Strong repulsion to prevent overlapping
-      fg.d3Force('charge').strength(-1200);
-      fg.d3Force('link').distance((link: any) => link.isTrailLink ? 150 : 200);
-      fg.d3Force('center', null); // Disable centering force
-
-      // Add custom force to position nodes by type
-      fg.d3Force('position', (alpha: number) => {
-        graphData.nodes.forEach((node: any) => {
-          if (!node.isCenter && !node.isTrail) {
-            // Push child nodes to the right but keep them in bounds
-            const targetX = 400;
-            const strength = 0.2;
-            node.vx = node.vx || 0;
-            node.vx += (targetX - (node.x || 0)) * strength;
-          } else if (node.isTrail) {
-            // Pull trail nodes to the left
-            const targetX = -400;
-            const strength = 0.2;
-            node.vx = node.vx || 0;
-            node.vx += (targetX - (node.x || 0)) * strength;
-          }
-        });
-      });
-
-      // Add collision detection to prevent overlaps
-      const collisionRadius = 70; // Smaller radius for more compact layout
-      fg.d3Force('collide', forceCollide(collisionRadius).strength(1).iterations(3));
-
-      // Set initial positions
-      const trailNodes = graphData.nodes.filter(n => n.isTrail);
-      const centerNode = graphData.nodes.find(n => n.isCenter);
-      const childNodes = graphData.nodes.filter(n => !n.isCenter && !n.isTrail);
-
-      trailNodes.forEach((node, index) => {
-        if (!node.x || !node.y) {
-          node.x = -400;
-          node.y = (index - (trailNodes.length - 1) / 2) * 100;
-        }
-        delete node.fx;
-        delete node.fy;
-      });
-
-      // Spread child nodes in a compact grid pattern on the right
-      childNodes.forEach((node, index) => {
-        if (!node.x || !node.y) {
-          const cols = Math.ceil(Math.sqrt(childNodes.length * 1.5)); // More columns for compact layout
-          const row = Math.floor(index / cols);
-          const col = index % cols;
-          node.x = 350 + col * 130; // Closer to center, tighter spacing
-          node.y = (row - (Math.ceil(childNodes.length / cols) - 1) / 2) * 90; // Tighter vertical spacing
-        }
-        delete node.fx;
-        delete node.fy;
-      });
-
-      // Pin center node at origin (fixed, non-movable)
-      if (centerNode) {
-        centerNode.fx = 0;
-        centerNode.fy = 0;
-      }
-
-      // Restart simulation
-      fg.d3ReheatSimulation();
-    }
-  }, [graphData]);
 
   const handleInputSubmit = () => {
     if (!dictionary || !inputText.trim()) {
@@ -177,9 +121,15 @@ function App() {
 
     setError(null);
     setHasAttemptedSubmit(false);
-    setTrail([chengyu]); // Start new trail
+    setTrail([chengyu]); // Start new trail (resets the chain)
     setInputText('');
-    setShowInput(false);
+  };
+
+  const handleReset = () => {
+    setTrail([]);
+    setInputText('');
+    setError(null);
+    setHasAttemptedSubmit(false);
   };
 
   // Auto-submit when 4 characters are entered (but not during IME composition)
@@ -198,20 +148,15 @@ function App() {
     }
   }, [inputText, currentChengyu, dictionary, isComposing]);
 
-  const handleNodeClick = useCallback((node: GraphNode) => {
-    if (node.isTrail) {
-      // Clicking a trail node - go back to that point
-      const clickedIndex = trail.findIndex(c => c.text === node.chengyu.text);
-      if (clickedIndex !== -1) {
-        setTrail(prev => prev.slice(0, clickedIndex + 1));
-        setError(null);
-      }
-    } else if (!node.isCenter) {
-      // Only add to trail if it's a child node (not center, not already in trail)
-      setTrail(prev => [...prev, node.chengyu]);
-      setError(null);
-    }
-  }, [trail]);
+  const handleChengyuClick = useCallback((chengyu: Chengyu) => {
+    setTrail(prev => [...prev, chengyu]);
+    setError(null);
+  }, []);
+
+  const handleTrailClick = useCallback((index: number) => {
+    setTrail(prev => prev.slice(0, index + 1));
+    setError(null);
+  }, []);
 
   const handleBack = () => {
     if (trail.length > 1) {
@@ -226,180 +171,267 @@ function App() {
 
   if (loading) {
     return (
-      <div className="relative max-w-7xl mx-auto p-8 min-h-screen">
-        <div className="bg-white rounded-xl p-12 text-center shadow-lg">
-          Loading dictionary...
+      <>
+        <div className="ambient-circle ambient-1"></div>
+        <div className="ambient-circle ambient-2"></div>
+        <div className="ambient-circle ambient-3"></div>
+        <div className="relative max-w-7xl mx-auto p-8 min-h-screen flex items-center justify-center">
+          <div className="glass-card rounded-3xl p-12 text-center shadow-2xl animate-pulse">
+            <div className="text-6xl mb-4">📚</div>
+            <div className="text-white text-xl font-medium">加载字典中...</div>
+            <div className="text-white/60 text-sm mt-2">Loading dictionary...</div>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (error && !dictionary) {
     return (
-      <div className="relative max-w-7xl mx-auto p-8 min-h-screen">
-        <div className="bg-white rounded-xl p-12 text-center shadow-lg text-red-600">
-          Error: {error}
+      <>
+        <div className="ambient-circle ambient-1"></div>
+        <div className="ambient-circle ambient-2"></div>
+        <div className="ambient-circle ambient-3"></div>
+        <div className="relative max-w-7xl mx-auto p-8 min-h-screen flex items-center justify-center">
+          <div className="glass-card rounded-3xl p-12 text-center shadow-2xl border-2 border-red-400">
+            <div className="text-6xl mb-4">⚠️</div>
+            <div className="text-white text-xl font-medium mb-2">错误</div>
+            <div className="text-white/80 text-sm">{error}</div>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="relative max-w-7xl mx-auto p-8 h-screen overflow-hidden">
-      <header className="text-center text-white mb-8">
-        <h1 className="text-4xl font-bold mb-2 drop-shadow-lg">成语接龙</h1>
-      </header>
+    <>
+      {/* Ambient background effects */}
+      <div className="ambient-circle ambient-1"></div>
+      <div className="ambient-circle ambient-2"></div>
+      <div className="ambient-circle ambient-3"></div>
 
-      {/* Strictness radio in top left */}
-      <div className="absolute top-8 left-8 flex gap-2 z-10">
-        <label className="cursor-pointer">
-          <input
-            type="radio"
-            name="strictness"
-            value="1"
-            checked={strictness === 1}
-            onChange={() => handleStrictnessChange(1)}
-            className="hidden"
-          />
-          <span className={`flex items-center justify-center px-4 py-2 rounded-lg border-2 transition-all font-medium text-sm shadow-md ${
-            strictness === 1
-              ? 'bg-primary text-white border-primary'
-              : 'bg-white text-gray-600 border-gray-300 hover:border-primary hover:bg-purple-50'
-          }`}>pin</span>
-        </label>
-        <label className="cursor-pointer">
-          <input
-            type="radio"
-            name="strictness"
-            value="2"
-            checked={strictness === 2}
-            onChange={() => handleStrictnessChange(2)}
-            className="hidden"
-          />
-          <span className={`flex items-center justify-center px-4 py-2 rounded-lg border-2 transition-all font-medium text-sm shadow-md ${
-            strictness === 2
-              ? 'bg-primary text-white border-primary'
-              : 'bg-white text-gray-600 border-gray-300 hover:border-primary hover:bg-purple-50'
-          }`}>pin1</span>
-        </label>
-        <label className="cursor-pointer">
-          <input
-            type="radio"
-            name="strictness"
-            value="3"
-            checked={strictness === 3}
-            onChange={() => handleStrictnessChange(3)}
-            className="hidden"
-          />
-          <span className={`flex items-center justify-center px-4 py-2 rounded-lg border-2 transition-all font-medium text-sm shadow-md ${
-            strictness === 3
-              ? 'bg-primary text-white border-primary'
-              : 'bg-white text-gray-600 border-gray-300 hover:border-primary hover:bg-purple-50'
-          }`}>字</span>
-        </label>
-      </div>
+      <div className="relative max-w-7xl mx-auto p-8 h-screen overflow-hidden z-10">
+        <header className="text-center text-white mb-8 floating">
+          <h1 className="text-6xl font-bold mb-2 drop-shadow-2xl tracking-wide" style={{ fontFamily: "'Noto Serif SC', serif" }}>
+            成语接龙
+          </h1>
+          <p className="text-white/80 text-sm mt-2 font-light tracking-widest">CHINESE IDIOM CHAIN</p>
+        </header>
 
-      {error && !currentChengyu && (
-        <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-4 max-w-2xl mx-auto border border-red-300 text-center text-lg font-medium">
-          成语不存在
-        </div>
-      )}
-
-      {/* Main force graph view */}
-      {currentChengyu ? (
-        <div className="relative w-full mt-8">
-          <div className="text-white text-base font-semibold text-center mb-4 drop-shadow-md">
-            {graphData.nodes.length - 1} following 成语
+        {/* Strictness radio in top left */}
+        <div className="absolute top-8 left-8 z-20">
+          <div className="flex gap-3">
+            <label
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredStrictness(1)}
+              onMouseLeave={() => setHoveredStrictness(null)}
+            >
+              <input
+                type="radio"
+                name="strictness"
+                value="1"
+                checked={strictness === 1}
+                onChange={() => handleStrictnessChange(1)}
+                className="hidden"
+              />
+              <span className={`glass-button flex items-center justify-center px-5 py-2.5 rounded-xl font-semibold text-base shadow-lg ${
+                strictness === 1 ? 'active' : 'text-white'
+              }`}>
+                zi
+              </span>
+            </label>
+            <label
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredStrictness(2)}
+              onMouseLeave={() => setHoveredStrictness(null)}
+            >
+              <input
+                type="radio"
+                name="strictness"
+                value="2"
+                checked={strictness === 2}
+                onChange={() => handleStrictnessChange(2)}
+                className="hidden"
+              />
+              <span className={`glass-button flex items-center justify-center px-5 py-2.5 rounded-xl font-semibold text-base shadow-lg ${
+                strictness === 2 ? 'active' : 'text-white'
+              }`}>
+                zì
+              </span>
+            </label>
+            <label
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredStrictness(3)}
+              onMouseLeave={() => setHoveredStrictness(null)}
+            >
+              <input
+                type="radio"
+                name="strictness"
+                value="3"
+                checked={strictness === 3}
+                onChange={() => handleStrictnessChange(3)}
+                className="hidden"
+              />
+              <span className={`glass-button flex items-center justify-center px-5 py-2.5 rounded-xl font-semibold text-base shadow-lg ${
+                strictness === 3 ? 'active' : 'text-white'
+              }`} style={{ fontFamily: "'Noto Serif SC', serif" }}>
+                字
+              </span>
+            </label>
           </div>
-          <div className="w-full h-[75vh]">
-            <ForceGraph2D
-              ref={fgRef}
-              graphData={graphData}
-              nodeLabel={(node: any) => `${node.chengyu.text}\n${node.chengyu.pinyin.join(' ')}`}
-              nodeCanvasObject={(node: any, ctx, globalScale) => {
-                const label = node.chengyu.text;
-                const fontSize = node.isCenter ? 64 : (node.isTrail ? 32 : 20);
-                ctx.font = `bold ${fontSize}px Sans-Serif`;
-                const textWidth = ctx.measureText(label).width;
-                const bckgDimensions = [textWidth + 20, fontSize + 16];
 
-                // Draw card background
-                ctx.fillStyle = node.isTrail ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.95)';
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                ctx.shadowBlur = 10;
-                ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 4;
-
-                const borderRadius = 12;
-                const x = node.x - bckgDimensions[0] / 2;
-                const y = node.y - bckgDimensions[1] / 2;
-                const width = bckgDimensions[0];
-                const height = bckgDimensions[1];
-
-                ctx.beginPath();
-                ctx.moveTo(x + borderRadius, y);
-                ctx.lineTo(x + width - borderRadius, y);
-                ctx.quadraticCurveTo(x + width, y, x + width, y + borderRadius);
-                ctx.lineTo(x + width, y + height - borderRadius);
-                ctx.quadraticCurveTo(x + width, y + height, x + width - borderRadius, y + height);
-                ctx.lineTo(x + borderRadius, y + height);
-                ctx.quadraticCurveTo(x, y + height, x, y + height - borderRadius);
-                ctx.lineTo(x, y + borderRadius);
-                ctx.quadraticCurveTo(x, y, x + borderRadius, y);
-                ctx.closePath();
-                ctx.fill();
-
-                // Reset shadow for text
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
-
-                // Draw border
-                ctx.strokeStyle = node.isCenter ? '#667eea' : (node.isTrail ? '#9333ea' : '#e5e7eb');
-                ctx.lineWidth = node.isCenter ? 3 : (node.isTrail ? 2.5 : 2);
-                ctx.stroke();
-
-                // Draw text
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = node.isCenter ? '#667eea' : (node.isTrail ? '#9333ea' : '#374151');
-                ctx.fillText(label, node.x, node.y);
-              }}
-              nodePointerAreaPaint={(node: any, color, ctx) => {
-                const label = node.chengyu.text;
-                const fontSize = node.isCenter ? 64 : (node.isTrail ? 32 : 20);
-                ctx.font = `bold ${fontSize}px Sans-Serif`;
-                const textWidth = ctx.measureText(label).width;
-                const bckgDimensions = [textWidth + 20, fontSize + 16];
-                ctx.fillStyle = color;
-                ctx.fillRect(
-                  node.x - bckgDimensions[0] / 2,
-                  node.y - bckgDimensions[1] / 2,
-                  bckgDimensions[0],
-                  bckgDimensions[1]
-                );
-              }}
-              onNodeClick={handleNodeClick}
-              linkColor={(link: any) => link.isTrailLink ? '#9333ea' : '#667eea'}
-              linkWidth={(link: any) => link.isTrailLink ? 3 : 2}
-              linkDirectionalParticles={(link: any) => link.isTrailLink ? 3 : 2}
-              linkDirectionalParticleWidth={2}
-              linkDirectionalParticleSpeed={0.005}
-              d3AlphaDecay={0.3}
-              d3VelocityDecay={0.8}
-              cooldownTicks={50}
-              enableNodeDrag={(node: any) => !node.isCenter}
-              enablePanInteraction={false}
-              enableZoomInteraction={false}
-            />
-          </div>
+          {/* Custom tooltip */}
+          {hoveredStrictness && (
+            <div className="glass-card mt-3 p-4 rounded-xl shadow-2xl max-w-xs animate-fade-in">
+              <div className="text-white text-sm leading-relaxed">
+                {hoveredStrictness === 1 && (
+                  <>
+                    <div className="font-semibold mb-1">Toneless Pinyin Match</div>
+                    <div className="text-white/80">Matches without tones (e.g., 'tu' matches 'tu')</div>
+                    <div className="text-white/60 text-xs mt-2">Most flexible • Most options</div>
+                  </>
+                )}
+                {hoveredStrictness === 2 && (
+                  <>
+                    <div className="font-semibold mb-1">Pinyin with Tone Match</div>
+                    <div className="text-white/80">Matches with exact tones (e.g., 'tú' matches 'tú')</div>
+                    <div className="text-white/60 text-xs mt-2">Medium difficulty • Moderate options</div>
+                  </>
+                )}
+                {hoveredStrictness === 3 && (
+                  <>
+                    <div className="font-semibold mb-1">Same Character Match</div>
+                    <div className="text-white/80">Exact character match (e.g., '图' matches '图')</div>
+                    <div className="text-white/60 text-xs mt-2">Most strict • Fewest options</div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex items-center justify-center h-[60vh]">
-          <div className={`bg-white rounded-xl p-8 shadow-2xl border-4 transition-all relative ${
-            error ? 'border-red-500' : 'border-primary'
-          }`}>
-            <div className="relative flex gap-4 items-center justify-center">
-              {/* Input overlaid with cursor - positioned behind */}
+
+        {error && !currentChengyu && (
+          <div className="glass-card p-4 rounded-2xl mb-4 max-w-2xl mx-auto text-center text-lg font-medium text-white animate-pulse">
+            ⚠️ 成语不存在
+          </div>
+        )}
+
+
+        {/* Main content */}
+        {currentChengyu ? (
+          <div className="relative w-full mt-4">
+            {/* Trail breadcrumbs */}
+            {trail.length > 1 && (
+              <div className="flex items-center justify-center gap-2 mb-8 flex-wrap">
+                {trail.slice(0, -1).map((chengyu, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleTrailClick(index)}
+                      className="glass-card px-4 py-2 rounded-xl text-white font-bold hover:bg-white/30 transition-all shadow-lg"
+                      style={{ fontFamily: "'Noto Serif SC', serif" }}
+                    >
+                      {chengyu.text}
+                    </button>
+                    {index < trail.length - 2 && <span className="text-white/60 text-xl">→</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Current chengyu (center) */}
+            <div className="flex items-center justify-center mb-12">
+              <div className="glass-card px-16 py-10 rounded-3xl shadow-2xl border-2 border-white/40 relative">
+                <button
+                  onClick={handleReset}
+                  className="absolute -top-3 -right-3 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center text-gray-700 hover:text-gray-900 hover:scale-110"
+                  title="Reset"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                <div
+                  className="text-8xl font-bold text-center bg-gradient-to-br from-white via-white to-white/90 text-transparent bg-clip-text drop-shadow-lg"
+                  style={{
+                    fontFamily: "'Noto Serif SC', serif",
+                    WebkitTextStroke: '2px transparent',
+                    paintOrder: 'stroke fill'
+                  }}
+                >
+                  {currentChengyu.text}
+                </div>
+              </div>
+            </div>
+
+            {/* Options count */}
+            <div className="glass-card inline-block px-6 py-3 rounded-full mx-auto mb-6 text-white text-sm font-medium shadow-lg" style={{ marginLeft: '50%', transform: 'translateX(-50%)' }}>
+              <span className="opacity-80">接龙选项</span>
+              <span className="mx-2">•</span>
+              <span className="font-bold text-lg">{nextChengyus.length}</span>
+            </div>
+
+            {/* Next chengyus grid */}
+            <div className="max-w-7xl mx-auto px-4 mt-12">
+              {nextChengyus.length > 0 ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 max-h-[45vh] overflow-y-auto scrollbar-hide">
+                  {nextChengyus.map((chengyu) => (
+                    <button
+                      key={chengyu.text}
+                      onClick={() => handleChengyuClick(chengyu)}
+                      className="glass-card px-4 py-2 rounded-xl text-white font-bold hover:bg-white/30 transition-all duration-200 shadow-lg hover:shadow-xl group relative hover:z-50 hover:-translate-y-0.5"
+                      style={{ fontFamily: "'Noto Serif SC', serif" }}
+                    >
+                      <div className="whitespace-nowrap">
+                        {chengyu.text}
+                      </div>
+
+                      {/* Hover tooltip - positioned below instead of above */}
+                      <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 bg-gray-900/95 text-white text-xs px-3 py-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+                        {chengyu.pinyin.join(' ')}
+                        <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-gray-900/95 rotate-45"></div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="glass-card p-10 rounded-3xl text-center text-white shadow-2xl">
+                  <div className="text-5xl mb-3">🎉</div>
+                  <div className="text-2xl font-bold mb-1">没有更多成语了</div>
+                  <div className="text-sm opacity-80 mt-2">No more chengyus available</div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-[60vh]">
+            <div className="glass-card input-card rounded-3xl p-12 shadow-2xl">
+              <div className="text-center mb-6">
+                <p className="text-white/60 text-sm">Enter a 4-character idiom to begin</p>
+              </div>
+
+              <div className="flex gap-3 mb-6">
+                {[0, 1, 2, 3].map((index) => {
+                  const hasChar = inputText[index];
+                  const shouldShowRed = !hasChar && hasAttemptedSubmit;
+
+                  return (
+                    <div
+                      key={index}
+                      className={`w-20 h-24 rounded-2xl flex items-center justify-center transition-all shadow-lg ${
+                        shouldShowRed ? 'bg-red-100 border-2 border-red-400' : 'bg-white border-2 border-white/40'
+                      }`}
+                    >
+                      <span
+                        className="text-5xl font-bold text-gray-700"
+                        style={{ fontFamily: "'Noto Serif SC', serif" }}
+                      >
+                        {hasChar || ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
               <input
                 type="text"
                 value={inputText}
@@ -427,78 +459,24 @@ function App() {
                     handleInputSubmit();
                   }
                 }}
-                className="absolute top-0 left-0 w-full h-full text-5xl font-bold text-transparent focus:outline-none z-0"
-                style={{
-                  caretColor: '#667eea',
-                  letterSpacing: '96px',
-                  paddingLeft: '40px',
-                  textIndent: '0px'
-                }}
+                placeholder="输入成语..."
+                className="chengyu-input w-full px-6 py-4 text-xl text-center border-2 border-white/40 rounded-2xl focus:outline-none focus:border-white/80 focus:ring-2 focus:ring-white/30 bg-white/90 text-gray-700 font-medium shadow-lg"
+                style={{ fontFamily: "'Noto Serif SC'" }}
+                maxLength={4}
                 autoFocus
               />
-              {/* Character display boxes - on top */}
-              {[0, 1, 2, 3].map((index) => {
-                const displayText = isComposing ? '' : inputText;
-                const hasChar = displayText[index];
-                const shouldShowRed = !hasChar && hasAttemptedSubmit;
 
-                return (
-                  <div
-                    key={index}
-                    className={`w-20 h-24 flex items-center justify-center border-b-4 transition-colors relative z-10 ${
-                      shouldShowRed ? 'border-red-400' : 'border-gray-300'
-                    }`}
-                  >
-                    <span className="text-5xl font-bold text-gray-800 pointer-events-none">
-                      {hasChar || ''}
-                    </span>
-                  </div>
-                );
-              })}
+              {error && (
+                <div className="mt-4 text-red-300 text-center text-sm font-medium">
+                  ⚠️ {error}
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Input modal */}
-      {showInput && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000]"
-          onClick={() => setShowInput(false)}
-        >
-          <div
-            className="bg-white rounded-xl p-8 min-w-[400px] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="mb-6 text-gray-800 text-center text-xl font-semibold">Change 成语</h3>
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleInputSubmit()}
-              placeholder="Enter a 成语 (4 characters)"
-              className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-primary mb-4"
-              maxLength={4}
-              autoFocus
-            />
-            <div className="flex gap-4 justify-center">
-              <button
-                onClick={handleInputSubmit}
-                className="px-8 py-3 text-lg bg-primary text-white border-none rounded-lg cursor-pointer transition-all font-semibold hover:bg-primary/90"
-              >
-                Go
-              </button>
-              <button
-                onClick={() => setShowInput(false)}
-                className="px-8 py-3 text-lg bg-gray-200 text-gray-800 border-none rounded-lg cursor-pointer transition-all font-semibold hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }
 

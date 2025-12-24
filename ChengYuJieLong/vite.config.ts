@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // Enable SPA fallback for client-side routing
+    historyApiFallback: true,
   },
   publicDir: 'public',
   resolve: {
