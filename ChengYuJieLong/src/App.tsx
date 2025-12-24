@@ -158,13 +158,6 @@ function App() {
     setError(null);
   }, []);
 
-  const handleBack = () => {
-    if (trail.length > 1) {
-      setTrail(prev => prev.slice(0, -1)); // Remove last chengyu
-      setError(null);
-    }
-  };
-
   const handleStrictnessChange = (level: StrictnessLevel) => {
     setStrictness(level);
   };
