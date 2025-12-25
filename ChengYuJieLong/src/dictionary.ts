@@ -10,9 +10,9 @@ export async function loadDictionary(): Promise<DictionaryMaps> {
     return dictionary;
   }
 
-  const response = await fetch('/dictionary.json');
+  const response = await fetch('./dictionary.json');
   if (!response.ok) {
-    throw new Error(`Failed to load dictionary: ${response.statusText}`);
+    throw new Error(`Failed to load dictionary: ${response.status} ${response.statusText} - Check if dictionary.json exists in deployment`);
   }
 
   const data = (await response.json()) as DictionaryMaps;
